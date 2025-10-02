@@ -1,10 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { addCandidate } from "./store/candidateSlice";
-import { Table, Button, Tabs } from "antd";
+import { Table, Button, Tabs, message } from "antd";
 import ResumeUpload from "./components/ResumeUpload";
-import axios from "axios";
 import InterviewChat from "./components/InterviewChat";
+import axios from "axios";
 
 const { TabPane } = Tabs;
 
@@ -12,34 +12,37 @@ function App() {
   const dispatch = useDispatch();
   const candidates = useSelector((state) => state.candidates.list);
 
+  const [activeCandidateId, setActiveCandidateId] = useState(null);
+  const [questionsMap, setQuestionsMap] = useState({}); // candidateId -> questions
+
   const handleAdd = () => {
     const names = ["Alice", "Bob", "Charlie", "David", "Eve"];
     const randomName = names[Math.floor(Math.random() * names.length)];
-    const randomScore = Math.floor(Math.random() * 100);
-
     const newCandidate = {
       id: Date.now(),
       name: randomName,
-      score: randomScore,
+      score: 0,
     };
     dispatch(addCandidate(newCandidate));
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("resume", file);
+  // Called after ResumeUpload finishes
+  const startInterview = async (candidateId) => {
+    setActiveCandidateId(candidateId);
 
     try {
-      const res = await axios.post("http://localhost:5000/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      // Fetch AI-generated questions
+      const res = await axios.post("http://localhost:5000/api/generate-questions", {
+        topic: "React/Node",
       });
-      console.log("Server response:", res.data);
-      alert("Resume uploaded to backend!");
+      const questions = res.data.questions;
+      if (!questions || !questions.length) throw new Error("No questions returned");
+
+      // Store questions for this candidate
+      setQuestionsMap((prev) => ({ ...prev, [candidateId]: questions }));
     } catch (err) {
-      console.error("Upload error:", err);
+      console.error("Failed to fetch AI questions:", err);
+      message.error("Failed to fetch interview questions. Try again.");
     }
   };
 
@@ -55,9 +58,12 @@ function App() {
       <Tabs defaultActiveKey="1">
         {/* Interviewee Tab */}
         <TabPane tab="Interviewee" key="1">
-          <ResumeUpload />
-          {candidates.length > 0 ? (
-            <InterviewChat candidateId={candidates[0].id} />
+          <ResumeUpload onStartInterview={startInterview} />
+          {activeCandidateId ? (
+            <InterviewChat
+              candidateId={activeCandidateId}
+              questions={questionsMap[activeCandidateId]} // pass AI questions
+            />
           ) : (
             <p>Please upload a resume to start the interview.</p>
           )}

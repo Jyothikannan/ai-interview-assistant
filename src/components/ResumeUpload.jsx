@@ -1,15 +1,15 @@
 import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import { addCandidate } from "../store/candidateSlice";
-import * as pdfjsLib from "pdfjs-dist";
-import { message } from "antd";
 import axios from "axios";
+import { message, Modal, Input } from "antd";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.js`;
-
-function ResumeUpload() {
-  const [loading, setLoading] = useState(false);
+function ResumeUpload({ onStartInterview }) {
   const dispatch = useDispatch();
+  const [loading, setLoading] = useState(false);
+
+  const [missingFields, setMissingFields] = useState({});
+  const [modalVisible, setModalVisible] = useState(false);
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
@@ -17,73 +17,89 @@ function ResumeUpload() {
 
     setLoading(true);
 
-    // Prepare formData for backend upload
-    const formData = new FormData();
-    formData.append("resume", file);
-
     try {
-      // Upload file to Node backend
+      const formData = new FormData();
+      formData.append("resume", file);
+
+      // Upload resume to backend
       const res = await axios.post("http://localhost:5000/upload", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      console.log("Backend upload response:", res.data);
 
-      // Extract text locally using pdfjs
-      if (file.type === "application/pdf") {
-        const reader = new FileReader();
-        reader.onload = async function () {
-          const typedarray = new Uint8Array(this.result);
+      const text = res.data.extractedText || "";
 
-          const pdf = await pdfjsLib.getDocument(typedarray).promise;
-          let textContent = "";
+      // Simple regex extraction
+      const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/);
+      const phoneMatch = text.match(/\+?\d{10,15}/);
+      const nameWords = text.split(/\s+/).slice(0, 3).join(" ");
 
-          for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const text = await page.getTextContent();
-            textContent += text.items.map((item) => item.str).join(" ");
-          }
+      const candidate = {
+        id: Date.now(),
+        name: nameWords || "",
+        email: emailMatch ? emailMatch[0] : "",
+        phone: phoneMatch ? phoneMatch[0] : "",
+        score: 0,
+        filePath: res.data.path,
+      };
 
-          // Extract Name, Email, Phone
-          const emailMatch = textContent.match(
-            /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}/
-          );
-          const phoneMatch = textContent.match(/\+?\d{10,15}/);
-          const words = textContent.split(/\s+/).slice(0, 3).join(" ");
-          const nameMatch = words || "Unknown";
+      // Check missing fields
+      const missing = {};
+      if (!candidate.name) missing.name = "";
+      if (!candidate.email) missing.email = "";
+      if (!candidate.phone) missing.phone = "";
 
-          const newCandidate = {
-            id: Date.now(),
-            name: nameMatch.trim(),
-            email: emailMatch ? emailMatch[0] : "Missing",
-            phone: phoneMatch ? phoneMatch[0] : "Missing",
-            score: 0,
-            filePath: res.data.path, // store backend path if needed
-          };
-
-          dispatch(addCandidate(newCandidate));
-          message.success(`Candidate ${newCandidate.name} added!`);
-        };
-        reader.readAsArrayBuffer(file);
+      if (Object.keys(missing).length > 0) {
+        setMissingFields(missing);
+        setModalVisible(true);
       } else {
-        message.warning("Only PDF parsing is supported for now");
+        dispatch(addCandidate(candidate));
+        onStartInterview(candidate.id);
       }
     } catch (err) {
-      console.error("Upload error:", err);
+      console.error(err);
       message.error("Failed to upload resume");
     } finally {
       setLoading(false);
     }
   };
 
+  const handleModalSubmit = () => {
+    const candidate = {
+      id: Date.now(),
+      ...missingFields,
+      score: 0,
+    };
+    dispatch(addCandidate(candidate));
+    setModalVisible(false);
+    onStartInterview(candidate.id);
+  };
+
+  const handleFieldChange = (field, value) => {
+    setMissingFields((prev) => ({ ...prev, [field]: value }));
+  };
+
   return (
-    <div style={{ marginBottom: "20px" }}>
-      <input
-        type="file"
-        accept=".pdf,.docx"
-        onChange={handleFileUpload}
-        disabled={loading}
-      />
-      {loading && <p>Processing and uploading resume...</p>}
+    <div style={{ marginBottom: 20 }}>
+      <input type="file" accept=".pdf,.docx" onChange={handleFileUpload} disabled={loading} />
+      {loading && <p>Uploading and parsing resume...</p>}
+
+      <Modal
+        title="Fill Missing Fields"
+        open={modalVisible}
+        onOk={handleModalSubmit}
+        onCancel={() => setModalVisible(false)}
+      >
+        {Object.keys(missingFields).map((field) => (
+          <div key={field} style={{ marginBottom: 10 }}>
+            <label>{field}</label>
+            <Input
+              value={missingFields[field]}
+              onChange={(e) => handleFieldChange(field, e.target.value)}
+              placeholder={`Enter ${field}`}
+            />
+          </div>
+        ))}
+      </Modal>
     </div>
   );
 }
