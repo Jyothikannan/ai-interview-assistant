@@ -5,7 +5,7 @@ import pdfParse from "pdf-parse-fixed";
 import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
-import { fileURLToPath } from "url";   // Needed for __dirname in ES modules
+import { fileURLToPath } from "url";
 import { dirname } from "path";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,7 +26,9 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// --- Resume Upload Endpoint ---
+/**
+ * --- Resume Upload Endpoint ---
+ */
 app.post("/upload", upload.single("resume"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
@@ -52,8 +54,9 @@ app.post("/upload", upload.single("resume"), async (req, res) => {
   }
 });
 
-
-// --- AI Question Generation Endpoint ---
+/**
+ * --- AI Question Generation Endpoint ---
+ */
 app.post("/api/generate-questions", async (req, res) => {
   try {
     const { prompt } = req.body;
@@ -87,20 +90,16 @@ app.post("/api/generate-questions", async (req, res) => {
       });
     }
 
-    // --- Try to clean & extract JSON ---
     let finalResult = [];
     try {
-      // Case 1: Ollama wrapped in ```json ... ```
       const match = buffer.match(/```json([\s\S]*?)```/i);
       if (match) {
         finalResult = JSON.parse(match[1].trim());
       } else {
-        // Case 2: Direct JSON array
         finalResult = JSON.parse(buffer.trim());
       }
     } catch (e) {
       console.warn("Could not parse clean JSON, falling back:", e.message);
-      // Fallback: return one dummy question
       finalResult = [
         {
           question: buffer.trim() || "Could not generate questions",
@@ -110,7 +109,6 @@ app.post("/api/generate-questions", async (req, res) => {
       ];
     }
 
-    // Always ensure array
     if (!Array.isArray(finalResult)) {
       finalResult = [finalResult];
     }
@@ -121,20 +119,24 @@ app.post("/api/generate-questions", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-//  (Express backend)
+
+/**
+ * --- AI Scoring Endpoint ---
+ */
 app.post("/api/score-answer", async (req, res) => {
   try {
     const { question, answer } = req.body;
 
-    if (!question || !answer) {
+    if (!answer || !question) {
       return res.status(400).json({ error: "Question and answer are required" });
     }
 
-    // Example: call Ollama or your AI scoring model
-    const prompt = `Score the following candidate answer from 0 to 100.
+    const prompt = `
+You are an interview evaluator. Score the following answer on a scale of 1 to 5.
 Question: ${question}
 Answer: ${answer}
-Provide only the numeric score.`;
+Only return the number (1–5).
+    `;
 
     const response = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
@@ -142,23 +144,79 @@ Provide only the numeric score.`;
       body: JSON.stringify({ model: "llama3.2", prompt }),
     });
 
-    let buffer = "";
-    for await (const chunk of response.body) {
-      buffer += chunk.toString("utf8");
-    }
+    // Use text() instead of streaming
+    const buffer = await response.text();
 
-    // Extract numeric score from AI response
-    const scoreMatch = buffer.match(/\d{1,3}/);
-    const score = scoreMatch ? parseInt(scoreMatch[0], 10) : 0;
+    const match = buffer.trim().match(/[1-5]/);
+    const score = match ? parseInt(match[0], 10) : 3;
 
     res.json({ score });
   } catch (err) {
-    console.error("Error in /score-answer:", err);
+    console.error("Error in /api/score-answer:", err);
     res.status(500).json({ error: "Failed to score answer" });
   }
 });
 
 
+/**
+ * --- AI Candidate Summary Endpoint ---
+ */
+app.post("/api/generate-summary", async (req, res) => {
+  try {
+    const { candidateId, answers } = req.body;
+
+    console.log("Incoming /generate-summary request");
+    console.log("Candidate ID:", candidateId);
+    console.log("Answers received:", answers);
+
+    if (!answers || !Array.isArray(answers) || answers.length === 0) {
+      return res.status(400).json({ error: "Answers are required" });
+    }
+
+    const prompt = `
+Generate a concise summary of this candidate based on their interview answers:
+${answers.map((a, i) => `${i + 1}. Q: ${a.question}\n   A: ${a.answer}`).join("\n")}
+Provide the summary in 1–2 sentences. Return only plain text, no JSON, no markdown.
+    `;
+
+    const response = await fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "llama3.2", prompt }),
+    });
+
+   // Stream parsing
+    let buffer = "";
+    for await (const chunk of response.body) {
+      const lines = chunk.toString("utf8").split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const json = JSON.parse(line);
+          if (json.response) buffer += json.response + " ";
+        } catch {
+          // ignore non-JSON lines
+        }
+      }
+    }
+
+    // Clean the summary
+    let summary = buffer
+      .replace(/```(json)?/gi, "")
+      .replace(/["{}]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!summary) summary = "No summary generated";
+
+    console.log("Final cleaned summary:", summary);
+
+    res.json({ summary });
+  } catch (err) {
+    console.error("Error in /api/generate-summary:", err);
+    res.status(500).json({ error: "Failed to generate summary" });
+  }
+});
 
 const PORT = 5000;
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));

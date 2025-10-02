@@ -1,7 +1,7 @@
 // InterviewChat.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { saveAnswer, updateScore } from "../store/candidateSlice";
+import { saveAnswer, updateScore, updateSummary } from "../store/candidateSlice"; // <-- add updateSummary
 import { message, Button, Input, Progress, Card, Tag } from "antd";
 import axios from "axios";
 import QuestionsList from "./QuestionsList"; // adjust path if needed
@@ -25,15 +25,15 @@ function InterviewChat({ candidateId, questions }) {
   // Timer effect
   useEffect(() => {
     if (!questions || !questions[currentIndex] || candidate?.completed) return;
-    // Reset timer for new question
-  setTimer(questions[currentIndex].time || 0);
+
+    setTimer(questions[currentIndex].time || 0);
 
     if (intervalRef.current) clearInterval(intervalRef.current);
 
     intervalRef.current = setInterval(() => {
       setTimer((prev) => {
         if (prev <= 1) {
-          handleSubmit(); // auto-submit when timer runs out
+          handleSubmit();
           return 0;
         }
         return prev - 1;
@@ -51,13 +51,14 @@ function InterviewChat({ candidateId, questions }) {
     return (
       <div style={{ marginTop: 20 }}>
         <p>Interview completed! Final Score: {candidate.score}</p>
+        <p><strong>Summary:</strong> {candidate.summary || "No summary available"}</p>
         <QuestionsList questions={questions} />
       </div>
     );
   }
 
   const handleSubmit = async () => {
-    if (submitting) return; // prevent double submit
+    if (submitting) return;
     const currentQuestionObj = questions[currentIndex];
 
     if (!currentQuestionObj) {
@@ -72,7 +73,7 @@ function InterviewChat({ candidateId, questions }) {
 
     setSubmitting(true);
     try {
-      // Use relative URL (works with Vite proxy)
+      // Score current answer
       const res = await axios.post("/api/score-answer", {
         question: currentQuestionObj.question,
         answer,
@@ -83,21 +84,43 @@ function InterviewChat({ candidateId, questions }) {
       // Save answer in Redux
       dispatch(saveAnswer({
         id: candidate.id,
-        questionIndex: currentIndex,
+        question: currentQuestionObj.question,
         answer,
+        difficulty: currentQuestionObj.difficulty,
+        time: currentQuestionObj.time,
+        aiScore,
       }));
 
-      // Update local scores array
-      setScores((prev) => [...prev, aiScore]);
+      const updatedScores = [...scores, aiScore];
+      setScores(updatedScores);
 
-      // Move to next question or complete interview
       if (currentIndex < questions.length - 1) {
         setCurrentIndex(currentIndex + 1);
         setAnswer("");
         setTimer(questions[currentIndex + 1]?.time || 0);
       } else {
-        const finalScore = Math.round([...scores, aiScore].reduce((a, b) => a + b, 0) / ([...scores, aiScore].length));
+        // All questions answered → calculate final score
+        const finalScore = Math.round(updatedScores.reduce((a, b) => a + b, 0) / updatedScores.length);
         dispatch(updateScore({ id: candidate.id, score: finalScore }));
+
+        // Generate summary from backend
+        try {
+          const summaryRes = await axios.post("/api/generate-summary", {
+            candidateId: candidate.id,
+            answers: [...candidate.answers, {
+              question: currentQuestionObj.question,
+              answer,
+              difficulty: currentQuestionObj.difficulty,
+              time: currentQuestionObj.time,
+              aiScore
+            }],
+          });
+          const summary = summaryRes.data?.summary || "No summary generated";
+          dispatch(updateSummary({ id: candidate.id, summary }));
+        } catch (err) {
+          console.error("Failed to generate summary:", err);
+        }
+
         message.success(`Interview completed! Final Score: ${finalScore}`);
       }
     } catch (err) {
@@ -143,7 +166,12 @@ function InterviewChat({ candidateId, questions }) {
         <div style={{ marginTop: 15 }}>
           <Progress percent={timePercent} status={timer === 0 ? "exception" : "active"} />
           <p>Time left: {timer}s</p>
-          <Button type="primary" onClick={handleSubmit} style={{ marginTop: 10 }} disabled={submitting}>
+          <Button
+            type="primary"
+            onClick={handleSubmit}
+            style={{ marginTop: 10 }}
+            disabled={submitting}
+          >
             Submit
           </Button>
         </div>

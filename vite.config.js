@@ -7,6 +7,7 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: "http://localhost:5000", // your backend
+        "/upload": "http://localhost:5000", // also forward uploads
         changeOrigin: true,
         secure: false,
       },

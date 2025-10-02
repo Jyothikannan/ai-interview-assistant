@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { addCandidate } from "./store/candidateSlice";
-import { Table, Button, Tabs, message } from "antd";
+import { Tabs, message } from "antd";
 import ResumeUpload from "./components/ResumeUpload";
 import InterviewChat from "./components/InterviewChat";
 import axios from "axios";
+import InterviewerDashboard from "./components/InterviewerDashboard";
 
 const { TabPane } = Tabs;
 
@@ -22,6 +23,8 @@ function App() {
       id: Date.now(),
       name: randomName,
       score: 0,
+      answers: [],
+      summary: "",
     };
     dispatch(addCandidate(newCandidate));
   };
@@ -32,7 +35,7 @@ function App() {
 
     try {
       // Fetch AI-generated questions
-      const res = await axios.post("http://localhost:5000/api/generate-questions", {
+      const res = await axios.post("/api/generate-questions", {
         topic: "React/Node",
       });
       const questions = res.data.questions;
@@ -45,11 +48,6 @@ function App() {
       message.error("Failed to fetch interview questions. Try again.");
     }
   };
-
-  const columns = [
-    { title: "Name", dataIndex: "name", key: "name" },
-    { title: "Score", dataIndex: "score", key: "score" },
-  ];
 
   return (
     <div style={{ padding: 20 }}>
@@ -71,14 +69,7 @@ function App() {
 
         {/* Interviewer Tab */}
         <TabPane tab="Interviewer" key="2">
-          <Button
-            type="primary"
-            onClick={handleAdd}
-            style={{ marginBottom: 20 }}
-          >
-            Add Candidate
-          </Button>
-          <Table dataSource={candidates} columns={columns} rowKey="id" />
+          <InterviewerDashboard />
         </TabPane>
       </Tabs>
     </div>

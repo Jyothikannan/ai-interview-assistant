@@ -15,18 +15,23 @@ export const candidateSlice = createSlice({
         currentQuestion: 0,   // Index of current question
         completed: false,     // Interview completed
         summary: "",          // AI-generated summary
+        totalQuestions: action.payload.totalQuestions || 6, // default 6
       });
     },
 
     saveAnswer: (state, action) => {
-      const { id, question, answer, difficulty, time } = action.payload;
-      const candidate = state.list.find((c) => c.id === id);
-      if (candidate) {
-        candidate.answers.push({ question, answer, difficulty, time });
-        candidate.currentQuestion += 1;
-        if (candidate.currentQuestion >= 6) candidate.completed = true;
-      }
-    },
+  const { id, question, answer, difficulty, time, aiScore } = action.payload;
+  const candidate = state.list.find((c) => c.id === id);
+  if (candidate) {
+    candidate.answers.push({ question, answer, difficulty, time, aiScore });
+    candidate.currentQuestion += 1;
+    // Mark completed when all questions have been answered
+    if (candidate.answers.length >= candidate.totalQuestions) {
+      candidate.completed = true;
+    }
+  }
+},
+
 
     updateScore: (state, action) => {
       const { id, score } = action.payload;
