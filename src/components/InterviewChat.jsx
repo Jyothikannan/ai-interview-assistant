@@ -25,6 +25,7 @@ function InterviewChat({ candidateId, questions }) {
   const [sessionData, setSessionData] = useState(null);
 
   const intervalRef = useRef(null);
+  const API_URL = import.meta.env.VITE_API_URL; // Render backend URL from Vercel env
 
   // --- Restore session if exists (only on first mount) ---
   useEffect(() => {
@@ -38,9 +39,9 @@ function InterviewChat({ candidateId, questions }) {
         setSessionData(parsed);
       }
     }
-  }, []); // 👈 only once on mount
+  }, []);
 
-  // --- Persist session (answers, current question, timer, etc.) ---
+  // --- Persist session ---
   useEffect(() => {
     if (!candidate) return;
     const dataToSave = {
@@ -50,7 +51,7 @@ function InterviewChat({ candidateId, questions }) {
       completed: candidate.completed,
       score: candidate.score,
       summary: candidate.summary,
-      timer, // 👈 save remaining time
+      timer,
     };
     localStorage.setItem(`candidate_${candidate.id}`, JSON.stringify(dataToSave));
   }, [candidate, currentIndex, timer]);
@@ -59,7 +60,6 @@ function InterviewChat({ candidateId, questions }) {
   useEffect(() => {
     if (!questions || !questions[currentIndex] || candidate?.completed) return;
 
-    // ✅ only set timer if it's 0 (fresh start), otherwise resume restored timer
     if (timer === 0) {
       setTimer(questions[currentIndex].time || 0);
     }
@@ -114,7 +114,7 @@ function InterviewChat({ candidateId, questions }) {
     setSubmitting(true);
     try {
       // Score current answer
-      const res = await axios.post("/api/score-answer", {
+      const res = await axios.post(`${API_URL}/api/score-answer`, {
         question: currentQuestionObj.question,
         answer,
       });
@@ -149,7 +149,7 @@ function InterviewChat({ candidateId, questions }) {
 
         // Generate summary from backend
         try {
-          const summaryRes = await axios.post("/api/generate-summary", {
+          const summaryRes = await axios.post(`${API_URL}/api/generate-summary`, {
             candidateId: candidate.id,
             answers: [
               ...candidate.answers,

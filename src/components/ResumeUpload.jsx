@@ -7,9 +7,10 @@ import { message, Modal, Input } from "antd";
 function ResumeUpload({ onStartInterview }) {
   const dispatch = useDispatch();
   const [loading, setLoading] = useState(false);
-
   const [missingFields, setMissingFields] = useState({});
   const [modalVisible, setModalVisible] = useState(false);
+
+  const API_URL = import.meta.env.VITE_API_URL; // Render backend URL from Vercel env
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
@@ -22,7 +23,7 @@ function ResumeUpload({ onStartInterview }) {
       formData.append("resume", file);
 
       // Upload resume to backend
-      const res = await axios.post("http://localhost:5000/upload", formData, {
+      const res = await axios.post(`${API_URL}/upload`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
@@ -80,7 +81,12 @@ function ResumeUpload({ onStartInterview }) {
 
   return (
     <div style={{ marginBottom: 20 }}>
-      <input type="file" accept=".pdf,.docx" onChange={handleFileUpload} disabled={loading} />
+      <input
+        type="file"
+        accept=".pdf,.docx"
+        onChange={handleFileUpload}
+        disabled={loading}
+      />
       {loading && <p>Uploading and parsing resume...</p>}
 
       <Modal

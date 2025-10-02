@@ -35,7 +35,7 @@ function App() {
 
     try {
       // Fetch AI-generated questions
-      const res = await axios.post("/api/generate-questions", {
+      const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/generate-questions`, {
         topic: "React/Node",
       });
       const questions = res.data.questions;
