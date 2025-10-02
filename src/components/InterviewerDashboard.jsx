@@ -1,19 +1,25 @@
 import React, { useState } from "react";
-import { useSelector } from "react-redux";
-import { Table, Input } from "antd";
+import { useSelector, useDispatch } from "react-redux";
+import { Table, Input, Button } from "antd";
 import CandidateDetail from "./CandidateDetail";
+import { resetCandidates } from "../store/candidateSlice"; // import the new action
 
 const { Search } = Input;
 
 function InterviewerDashboard() {
+  const dispatch = useDispatch();
   const candidates = useSelector((state) => state.candidates.list || []);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [searchText, setSearchText] = useState("");
 
+  const handleReset = () => {
+    dispatch(resetCandidates());
+    localStorage.clear(); // if you persist Redux state in localStorage
+  };
+
   // Filter candidates safely by search text
   const filteredCandidates = candidates.filter(
-    (c) =>
-      c.name?.toLowerCase().includes(searchText.toLowerCase()) // safe check with optional chaining
+    (c) => c.name?.toLowerCase().includes(searchText.toLowerCase())
   );
 
   if (selectedCandidate) {
@@ -30,7 +36,7 @@ function InterviewerDashboard() {
       title: "Name",
       dataIndex: "name",
       key: "name",
-      render: (text) => text || "Unknown", // fallback display if name is missing
+      render: (text) => text || "Unknown",
     },
     { title: "Final Score", dataIndex: "score", key: "score" },
     {
@@ -44,11 +50,16 @@ function InterviewerDashboard() {
   return (
     <div style={{ maxWidth: 900, margin: "auto", marginTop: 20 }}>
       <h2>Interviewer Dashboard</h2>
-      <Search
-        placeholder="Search candidates"
-        onChange={(e) => setSearchText(e.target.value)}
-        style={{ marginBottom: 20 }}
-      />
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+        <Search
+          placeholder="Search candidates"
+          onChange={(e) => setSearchText(e.target.value)}
+          style={{ width: 300 }}
+        />
+        <Button type="primary" danger onClick={handleReset}>
+          Clear All Candidates
+        </Button>
+      </div>
       <Table
         dataSource={filteredCandidates}
         columns={columns}

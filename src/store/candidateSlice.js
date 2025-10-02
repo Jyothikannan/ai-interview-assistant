@@ -20,18 +20,17 @@ export const candidateSlice = createSlice({
     },
 
     saveAnswer: (state, action) => {
-  const { id, question, answer, difficulty, time, aiScore } = action.payload;
-  const candidate = state.list.find((c) => c.id === id);
-  if (candidate) {
-    candidate.answers.push({ question, answer, difficulty, time, aiScore });
-    candidate.currentQuestion += 1;
-    // Mark completed when all questions have been answered
-    if (candidate.answers.length >= candidate.totalQuestions) {
-      candidate.completed = true;
-    }
-  }
-},
-
+      const { id, question, answer, difficulty, time, aiScore } = action.payload;
+      const candidate = state.list.find((c) => c.id === id);
+      if (candidate) {
+        candidate.answers.push({ question, answer, difficulty, time, aiScore });
+        candidate.currentQuestion += 1;
+        // Mark completed when all questions have been answered
+        if (candidate.answers.length >= candidate.totalQuestions) {
+          candidate.completed = true;
+        }
+      }
+    },
 
     updateScore: (state, action) => {
       const { id, score } = action.payload;
@@ -44,8 +43,14 @@ export const candidateSlice = createSlice({
       const candidate = state.list.find((c) => c.id === id);
       if (candidate) candidate.summary = summary;
     },
+
+    // ✅ Reset all candidates
+    resetCandidates: (state) => {
+      state.list = [];
+    },
   },
 });
 
-export const { addCandidate, saveAnswer, updateScore, updateSummary } = candidateSlice.actions;
+// ✅ Export all actions including resetCandidates
+export const { addCandidate, saveAnswer, updateScore, updateSummary, resetCandidates } = candidateSlice.actions;
 export default candidateSlice.reducer;
