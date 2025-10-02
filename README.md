@@ -27,19 +27,18 @@ A web application that generates technical interview questions, scores candidate
 
 ## Project Structure
 
+```text
 ai-interview-assistant/
 ├─ backend/
-│ ├─ server.js # Express server with API endpoints
-│ ├─ uploads/ # Candidate PDFs (ignored in Git)
+│  ├─ server.js           # Express server with API endpoints
+│  ├─ uploads/            # Candidate PDFs (ignored in Git)
 ├─ src/
-│ ├─ components/ # React components
-│ ├─ store/ # Redux Toolkit store
-│ ├─ App.jsx # Main React app
-├─ vite.config.js # Vite configuration
+│  ├─ components/         # React components
+│  ├─ store/              # Redux Toolkit store
+│  ├─ App.jsx             # Main React app
+├─ vite.config.js         # Vite configuration
 ├─ package.json
 ├─ README.md
-
----
 
 ## Installation
 
