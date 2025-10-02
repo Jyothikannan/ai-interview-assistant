@@ -8,6 +8,9 @@ import fetch from "node-fetch";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import mammoth from "mammoth";
+import dotenv from "dotenv";
+
+dotenv.config(); // Load .env variables
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,7 +19,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Multer setup for file upload
+const HF_API_KEY = process.env.HF_API_KEY;
+const HF_API_URL = "https://api-inference.huggingface.co/models/meta-llama/Llama-2-13b-chat"; // Replace with LLaMA 3.2 if available on HF
+
+// Multer setup
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, "uploads");
@@ -27,22 +33,14 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-/**
- * --- Resume Upload Endpoint (PDF + DOCX) ---
- */
+// --- Resume Upload ---
 app.post("/upload", upload.single("resume"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-
     const filePath = req.file.path;
-    if (!fs.existsSync(filePath)) {
-      return res.status(400).json({ error: "Uploaded file not found on server" });
-    }
 
     let text = "";
-
     if (req.file.mimetype === "application/pdf") {
-      // PDF
       const dataBuffer = fs.readFileSync(filePath);
       const pdfData = await pdfParse(dataBuffer);
       text = pdfData.text;
@@ -51,11 +49,10 @@ app.post("/upload", upload.single("resume"), async (req, res) => {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
       req.file.originalname.endsWith(".docx")
     ) {
-      // DOCX
       const result = await mammoth.extractRawText({ path: filePath });
       text = result.value;
     } else {
-      return res.status(400).json({ error: "Only PDF or DOCX files are allowed" });
+      return res.status(400).json({ error: "Only PDF or DOCX allowed" });
     }
 
     res.json({
@@ -70,157 +67,89 @@ app.post("/upload", upload.single("resume"), async (req, res) => {
   }
 });
 
-/**
- * --- AI Question Generation Endpoint ---
- */
+// --- Helper to call Hugging Face Inference ---
+async function callHuggingFace(prompt) {
+  const response = await fetch(HF_API_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${HF_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ inputs: prompt }),
+  });
+
+  const result = await response.json();
+  if (result.error) throw new Error(result.error);
+  return result[0]?.generated_text || "";
+}
+
+// --- Generate Questions ---
 app.post("/api/generate-questions", async (req, res) => {
   try {
     const { prompt } = req.body;
+    const finalPrompt =
+      prompt ||
+      `Generate 6 interview questions for a Full Stack React/Node role. 
+       Return a JSON array: [{"question": "...", "difficulty": "easy|medium|hard", "time": 20|60|120}]`;
 
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "llama3.2",
-        prompt:
-          prompt ||
-          `Generate 6 interview questions for a Full Stack React/Node role. 
-           Only return a JSON array in this format:
-           [{"question": "...", "difficulty": "easy|medium|hard", "time": 20|60|120}]`,
-        stream: true,
-      }),
-    });
+    const text = await callHuggingFace(finalPrompt);
 
-    let buffer = "";
-    for await (const chunk of response.body) {
-      const str = chunk.toString("utf8");
-      str.split("\n").forEach((line) => {
-        if (line.trim()) {
-          try {
-            const json = JSON.parse(line);
-            if (json.response) buffer += json.response;
-          } catch {
-            // Ignore non-JSON chunks
-          }
-        }
-      });
-    }
-
-    let finalResult = [];
+    let questions = [];
     try {
-      const match = buffer.match(/```json([\s\S]*?)```/i);
-      if (match) {
-        finalResult = JSON.parse(match[1].trim());
-      } else {
-        finalResult = JSON.parse(buffer.trim());
-      }
-    } catch (e) {
-      console.warn("Could not parse clean JSON, falling back:", e.message);
-      finalResult = [
-        {
-          question: buffer.trim() || "Could not generate questions",
-          difficulty: "medium",
-          time: 60,
-        },
+      questions = JSON.parse(text);
+    } catch {
+      questions = [
+        { question: text.trim(), difficulty: "medium", time: 60 },
       ];
     }
 
-    if (!Array.isArray(finalResult)) {
-      finalResult = [finalResult];
-    }
-
-    res.json({ questions: finalResult });
+    res.json({ questions });
   } catch (err) {
-    console.error("Error in /api/generate-questions:", err);
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * --- AI Scoring Endpoint ---
- */
+// --- Score Answer ---
 app.post("/api/score-answer", async (req, res) => {
   try {
     const { question, answer } = req.body;
-
-    if (!answer || !question) {
-      return res.status(400).json({ error: "Question and answer are required" });
-    }
+    if (!question || !answer)
+      return res.status(400).json({ error: "Question and answer required" });
 
     const prompt = `
-You are an interview evaluator. Score the following answer on a scale of 1 to 5.
+You are an interviewer. Score the answer from 1 to 5.
 Question: ${question}
 Answer: ${answer}
-Only return the number (1–5).
+Only return a single number (1-5).
     `;
 
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "llama3.2", prompt }),
-    });
-
-    const buffer = await response.text();
-    const match = buffer.trim().match(/[1-5]/);
-    const score = match ? parseInt(match[0], 10) : 3;
-
+    const text = await callHuggingFace(prompt);
+    const score = parseInt(text.trim().match(/[1-5]/)?.[0] || "3", 10);
     res.json({ score });
   } catch (err) {
-    console.error("Error in /api/score-answer:", err);
+    console.error(err);
     res.status(500).json({ error: "Failed to score answer" });
   }
 });
 
-/**
- * --- AI Candidate Summary Endpoint ---
- */
+// --- Generate Candidate Summary ---
 app.post("/api/generate-summary", async (req, res) => {
   try {
-    const { candidateId, answers } = req.body;
-
-    if (!answers || !Array.isArray(answers) || answers.length === 0) {
-      return res.status(400).json({ error: "Answers are required" });
-    }
+    const { answers } = req.body;
+    if (!answers || !Array.isArray(answers) || answers.length === 0)
+      return res.status(400).json({ error: "Answers required" });
 
     const prompt = `
-Generate a concise summary of this candidate based on their interview answers:
+Generate a concise summary based on the following answers:
 ${answers.map((a, i) => `${i + 1}. Q: ${a.question}\n   A: ${a.answer}`).join("\n")}
-Provide the summary in 1–2 sentences. Return only plain text, no JSON, no markdown.
+Return 1-2 sentences, plain text only.
     `;
 
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "llama3.2", prompt }),
-    });
-
-    // Stream parsing
-    let buffer = "";
-    for await (const chunk of response.body) {
-      const lines = chunk.toString("utf8").split("\n");
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const json = JSON.parse(line);
-          if (json.response) buffer += json.response + " ";
-        } catch {
-          // ignore non-JSON lines
-        }
-      }
-    }
-
-    // Clean the summary
-    let summary = buffer
-      .replace(/```(json)?/gi, "")
-      .replace(/["{}]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (!summary) summary = "No summary generated";
-
-    res.json({ summary });
+    const summary = await callHuggingFace(prompt);
+    res.json({ summary: summary.trim() || "No summary generated" });
   } catch (err) {
-    console.error("Error in /api/generate-summary:", err);
+    console.error(err);
     res.status(500).json({ error: "Failed to generate summary" });
   }
 });
