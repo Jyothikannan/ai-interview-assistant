@@ -7,6 +7,7 @@ import path from "path";
 import fetch from "node-fetch";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import mammoth from "mammoth";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,7 +28,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 /**
- * --- Resume Upload Endpoint ---
+ * --- Resume Upload Endpoint (PDF + DOCX) ---
  */
 app.post("/upload", upload.single("resume"), async (req, res) => {
   try {
@@ -38,9 +39,24 @@ app.post("/upload", upload.single("resume"), async (req, res) => {
       return res.status(400).json({ error: "Uploaded file not found on server" });
     }
 
-    const dataBuffer = fs.readFileSync(filePath);
-    const pdfData = await pdfParse(dataBuffer);
-    const text = pdfData.text;
+    let text = "";
+
+    if (req.file.mimetype === "application/pdf") {
+      // PDF
+      const dataBuffer = fs.readFileSync(filePath);
+      const pdfData = await pdfParse(dataBuffer);
+      text = pdfData.text;
+    } else if (
+      req.file.mimetype ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      req.file.originalname.endsWith(".docx")
+    ) {
+      // DOCX
+      const result = await mammoth.extractRawText({ path: filePath });
+      text = result.value;
+    } else {
+      return res.status(400).json({ error: "Only PDF or DOCX files are allowed" });
+    }
 
     res.json({
       message: "File uploaded successfully!",
@@ -144,9 +160,7 @@ Only return the number (1–5).
       body: JSON.stringify({ model: "llama3.2", prompt }),
     });
 
-    // Use text() instead of streaming
     const buffer = await response.text();
-
     const match = buffer.trim().match(/[1-5]/);
     const score = match ? parseInt(match[0], 10) : 3;
 
@@ -157,17 +171,12 @@ Only return the number (1–5).
   }
 });
 
-
 /**
  * --- AI Candidate Summary Endpoint ---
  */
 app.post("/api/generate-summary", async (req, res) => {
   try {
     const { candidateId, answers } = req.body;
-
-    console.log("Incoming /generate-summary request");
-    console.log("Candidate ID:", candidateId);
-    console.log("Answers received:", answers);
 
     if (!answers || !Array.isArray(answers) || answers.length === 0) {
       return res.status(400).json({ error: "Answers are required" });
@@ -185,7 +194,7 @@ Provide the summary in 1–2 sentences. Return only plain text, no JSON, no mark
       body: JSON.stringify({ model: "llama3.2", prompt }),
     });
 
-   // Stream parsing
+    // Stream parsing
     let buffer = "";
     for await (const chunk of response.body) {
       const lines = chunk.toString("utf8").split("\n");
@@ -208,8 +217,6 @@ Provide the summary in 1–2 sentences. Return only plain text, no JSON, no mark
       .trim();
 
     if (!summary) summary = "No summary generated";
-
-    console.log("Final cleaned summary:", summary);
 
     res.json({ summary });
   } catch (err) {

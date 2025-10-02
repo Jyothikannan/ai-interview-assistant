@@ -6,7 +6,7 @@ A web application that generates technical interview questions, scores candidate
 
 ## Features
 
-- **Resume Upload**: Upload candidate resumes in PDF format and extract text.  
+- **Resume Upload**: Upload candidate resumes in PDF and Docx format and extract text.  
 - **AI Question Generation**: Generate role-specific interview questions dynamically.  
 - **Answer Scoring**: Automatically score candidate answers on a scale of 1–5 using AI.  
 - **Candidate Summary**: Generate concise AI-powered summaries of candidate responses.  
